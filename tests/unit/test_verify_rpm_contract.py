@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -224,6 +225,124 @@ class TestVerifyRpmContract(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0, f"CLI check failed: {res.stderr}")
         self.assertIn("RPM contract syntax and supply-chain policy is valid", res.stdout)
+
+
+class TestDeclaredReleasePatterns(unittest.TestCase):
+    """The patterns as `main()` actually reads them, not as the defaults spell them.
+
+    The gap this closes: every other factory/Hummingbird test calls the verify
+    helpers positionally, which takes the Python default -- while production
+    takes the value out of `packages/utah.toml`. A suite green on a regex the
+    program does not use cannot see a TOML edit at all, which makes the whole
+    "a dist-tag convention change is a data edit" claim unverified.
+
+    So these load the committed TOML and assert on what it declares.
+    """
+
+    @staticmethod
+    def _declared() -> dict:
+        """Return the [supply_chain] block exactly as main() reads it."""
+
+        import tomllib
+
+        with (REPO_ROOT / "packages" / "utah.toml").open("rb") as handle:
+            return tomllib.load(handle).get("supply_chain", {})
+
+    def test_declared_patterns_are_present_and_not_catch_alls(self):
+        """A typo that matches everything disables the gate while looking set.
+
+        `re.search` on a malformed-but-valid pattern fails OPEN: it matches, so
+        every package passes and no error is ever raised. Asserting the
+        patterns REJECT something is what separates a live gate from a
+        decorative one.
+        """
+
+        declared = self._declared()
+        for key in ("factory_release_pattern", "hummingbird_release_pattern"):
+            pattern = declared.get(key)
+            self.assertIsNotNone(pattern, f"{key} is not declared in utah.toml")
+            self.assertIsNone(
+                re.search(pattern, "1.fc44"),
+                f"{key} matches a plain Fedora release, so it gates nothing",
+            )
+
+    def test_declared_factory_pattern_accepts_current_artifacts(self):
+        """Today's factory releases, and the bare `.bfin` form, both pass."""
+
+        pattern = self._declared()["factory_release_pattern"]
+        for release in ("1.hum1.bfin", "1.hum1.bfin.fc44", "1.bfin", "1.bfin.fc44"):
+            self.assertIsNotNone(
+                re.search(pattern, release),
+                f"factory pattern rejects {release!r}; `.bfin` is the factory "
+                "marker, and requiring `.hum<N>` beside it reports a genuine "
+                "factory build as a silent repository fallback",
+            )
+
+    def test_declared_factory_pattern_rejects_base_repo_releases(self):
+        """A package that resolved from a base repo is what the gate is for."""
+
+        pattern = self._declared()["factory_release_pattern"]
+        for release in ("1.hum1", "1.fc44", "2.el9"):
+            self.assertIsNone(
+                re.search(pattern, release),
+                f"factory pattern accepts {release!r}, which carries no .bfin",
+            )
+
+    def test_declared_patterns_agree_with_the_python_defaults(self):
+        """The wired value and the fallback must classify releases identically.
+
+        Not string equality -- two spellings of the same rule are fine. What is
+        not fine is the two disagreeing about a release, because then the
+        answer depends on whether the TOML was readable, and a test calling the
+        helper positionally proves nothing about production.
+        """
+
+        declared = self._declared()
+        releases = [
+            "1.hum1.bfin",
+            "1.hum1.bfin.fc44",
+            "1.bfin",
+            "1.bfin.fc44",
+            "1.fc44.bfin",
+            "1.hum1",
+            "1.hum2",
+            "1.fc44",
+            "2.el9",
+        ]
+        pairs = (
+            ("factory_release_pattern", mod.DEFAULT_FACTORY_RELEASE_PATTERN),
+            ("hummingbird_release_pattern", mod.DEFAULT_HUMMINGBIRD_RELEASE_PATTERN),
+        )
+        for key, default in pairs:
+            for release in releases:
+                self.assertEqual(
+                    bool(re.search(declared[key], release)),
+                    bool(re.search(default, release)),
+                    f"{key} and its Python default disagree about {release!r}",
+                )
+
+    def test_factory_verification_uses_the_declared_pattern(self):
+        """The wired path, end to end, on a release only one pattern accepts."""
+
+        pattern = self._declared()["factory_release_pattern"]
+        pkg_map = {
+            "fastfetch": {
+                "name": "fastfetch",
+                "epoch": "0",
+                "version": "2.21.3",
+                "release": "1.bfin",
+                "arch": "x86_64",
+                "sourcerpm": "fastfetch-2.21.3-1.bfin.src.rpm",
+                "vendor": "projectbluefin",
+                "nevra": "fastfetch-0:2.21.3-1.bfin.x86_64",
+            }
+        }
+        self.assertEqual(
+            mod.verify_factory_packages(["fastfetch"], pkg_map, pattern),
+            [],
+            "a factory RPM tagged .bfin without .hum<N> is a genuine factory "
+            "build and must not be reported as a repository fallback",
+        )
 
 
 if __name__ == "__main__":

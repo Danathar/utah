@@ -171,7 +171,16 @@ report_path = "/usr/share/utah/package-provenance.json"
 # pattern here rather than in scripts/verify-rpm-contract.py -- the two repos'
 # release-identity conventions must move together, and this is the one place
 # that should need editing when they do.
-factory_release_pattern = '.*\.hum\d*\.bfin.*'
+#
+# The factory marker is `.bfin` ALONE, deliberately. Today every factory
+# artifact is also tagged `.hum<N>`, so `.*\.hum\d*\.bfin.*` would match all
+# of them -- but it would additionally REJECT a factory RPM tagged `.bfin`
+# without a Hummingbird segment, reporting it as a "silent repository
+# fallback" when it came from exactly where it was supposed to. That is a
+# false accusation waiting for the first artifact that does not carry both
+# tags. `.bfin` is what "came from the factory" means; `.hum<N>` is a separate
+# fact with its own pattern below. Keep them separate.
+factory_release_pattern = '.*\.bfin.*'
 hummingbird_release_pattern = '.*\.hum\d*.*'
 
 
