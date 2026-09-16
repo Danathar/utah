@@ -1,6 +1,7 @@
 """CI must test the complete exact-digest set before publication."""
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -61,6 +62,52 @@ class InputsTests(unittest.TestCase):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_ogc_config_gate_rejects_each_missing_live_boot_feature(self):
+        script = (ROOT / "scripts/install-ogc-kernel.sh").read_text()
+        # Execute only the pure config gate, never the package/kernel installer.
+        gate = "required_config=" + script.split("required_config=", 1)[1].split(
+            '\nif [ -f "${CACHE_DIR}/ogc.tar" ]; then', 1)[0]
+        names = gate.split("(", 1)[1].split(")", 1)[0].split()
+        for required in ["OVERLAY_FS", "SQUASHFS", "SQUASHFS_ZSTD", "EROFS_FS",
+                         "BLK_DEV_LOOP", "DM_SNAPSHOT", "DM_CRYPT", "CRYPTO_XTS",
+                         "FUSE_FS", "FS_VERITY"]:
+            self.assertIn(required, names)
+            self.assertRegex(script, rf"--(?:enable|module) {required}(?:\s|$)")
+        self.assertEqual(script.count("verify_config /usr/lib/utah/ogc-kernel.config"), 2)
+        self.assertIn("make olddefconfig", script.split("verify_config .config")[0])
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config"
+            for missing in [None, *names]:
+                with self.subTest(missing=missing):
+                    config.write_text("".join(f"CONFIG_{name}=y\n"
+                                              for name in names if name != missing))
+                    result = subprocess.run(
+                        ["bash", "-eu", "-c", gate + '\nverify_config "$1"',
+                         "config-test", str(config)], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0 if missing is None else 1)
+                    if missing:
+                        self.assertIn(f"CONFIG_{missing}", result.stderr)
+
+    def test_offline_payload_preserves_manifest_digest(self):
+        script = (ROOT / "iso/scripts/build-iso.sh").read_text()
+        self.assertNotIn("oci-archive:", script)
+        self.assertEqual(script.count("--preserve-digests"), 2)
+        self.assertIn('"dir:${PAYLOAD_EXPORT}"', script)
+        self.assertIn('dir:/payload "containers-storage:$1"', script)
+
+    def test_build_explicitly_dispatches_iso_after_both_image_jobs(self):
+        import yaml
+        build = yaml.safe_load((ROOT / ".github/workflows/build.yml").read_text())
+        job = build["jobs"]["dispatch-iso"]
+        self.assertEqual(set(job["needs"]), {"build_main", "build_kernel"})
+        self.assertIn("refs/heads/testing", job["if"])
+        self.assertIn("needs.build_main.result == 'success'", job["if"])
+        self.assertIn("needs.build_kernel.result == 'success'", job["if"])
+        self.assertIn("build_run_id=$GITHUB_RUN_ID", job["steps"][0]["run"])
+        workflow = (ROOT / ".github/workflows/post-testing-e2e.yml").read_text()
+        self.assertNotIn("workflow_run:", workflow)
+        self.assertIn('timeout 300 gh run watch "$BUILD_RUN"', workflow)
+
     def test_readme_update_is_idempotent_and_preserves_other_text(self):
         update = load("update-e2e-readme").update
         proof = {"source_sha": "a" * 40, "e2e_run": "123"}
