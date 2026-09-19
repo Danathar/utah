@@ -1,7 +1,7 @@
 ---
 name: desktop-contract
 version: "1.0"
-last_updated: "2026-09-16"
+last_updated: "2026-09-18"
 id: desktop-contract
 one_line_purpose: Maintain Utah identity, Bluefin desktop defaults, and first-boot Flatpak policy.
 entry_point: docs/skills/desktop-contract.md
@@ -55,7 +55,7 @@ The TOML's sections are the contract's table of contents:
   `99-flatpaks.sh` privileged-setup hook, and the system-flatpaks Brewfile
   whose app list the contract enumerates.
 - **`[services]`** — systemd units the preset must enable: `gdm.service`,
-  `ublue-system-setup.service`, `flatpak-preinstall.service`,
+  `bluetooth.service`, `ublue-system-setup.service`, `flatpak-preinstall.service`,
   `flatpak-nuke-fedora.service`, `brew-setup.service`, `dconf-update.service`,
   `bootc-unified-storage.service`, `uupd.timer`.
 
