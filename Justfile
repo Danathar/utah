@@ -79,8 +79,7 @@ check:
     # Every executable release asset fetched during composition must be pinned
     # and verified; no build may resolve a mutable latest release.
     python3 scripts/check-download-integrity.py
-    grep -q '"utah-packages"' scripts/install-packages.py
-    python3 scripts/install-packages.py --check packages/bluefin.toml
+    python3 scripts/install-packages.py --check --repos-dir packages packages/bluefin.toml
     python3 scripts/verify-rpm-contract.py --check packages/bluefin.toml
     # run the host-side unit suite (tests/test_*.py) via its dedicated recipe
     just test
