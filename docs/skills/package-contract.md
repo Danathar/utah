@@ -157,9 +157,11 @@ parity gate tests against a known revision rather than moving with Bluefin's
 default branch, preventing unrelated upstream changes from breaking Utah's CI.
 Update it whenever synchronizing `packages/bluefin.toml` with upstream.
 
-Current counts, per the README "Package parity" section: 61 Bluefin contract
-packages installed, 12 Utah additions (GNOME 51, desktop services), 4
-genuinely unavailable.
+Current counts, per the README "Package parity" section: 58 Bluefin contract
+packages installed, 44 Utah additions (GNOME 51, base-image parity, desktop
+services), 9 genuinely unavailable. `scripts/check-doc-counts.py` (part of
+`just check`) recomputes these from the manifests and fails if either
+document drifts from `site/data/packages.json`.
 
 ## Verification
 
@@ -168,4 +170,5 @@ just check-parity
 just check-repos
 python3 scripts/install-packages.py --check packages/bluefin.toml
 python3 scripts/verify-rpm-contract.py --check packages/bluefin.toml
+python3 scripts/check-doc-counts.py
 ```
