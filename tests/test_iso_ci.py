@@ -116,6 +116,35 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("rd.live.image", script)
         self.assertIn("rd.live.overlay.overlayfs=1", script)
 
+    def test_terminal_autostart_forces_software_gl_rendering(self):
+        # #183: Ghostty computes GDK_DISABLE from a hardcoded struct and
+        # setenv(3)s it with overwrite=1 right before gtk_init (upstream
+        # src/apprt/gtk/class/application.zig, gtk_ghostty_application
+        # scope), so neither this script nor a `flatpak override --env` can
+        # steer it: an upstream build on 2026-09-20 dropped `gles-api` from
+        # that struct, and every flavor's terminal exited without ever
+        # mapping a window under QEMU's GPU-less VGA device ("MESA: error:
+        # ZINK: failed to choose pdev", then "gtk_ghostty_surface: failed to
+        # initialize surface"). LIBGL_ALWAYS_SOFTWARE and
+        # MESA_LOADER_DRIVER_OVERRIDE are never among the variables Ghostty
+        # itself setenv(3)s (only LANG, GDK_DEBUG and GDK_DISABLE are), so
+        # they survive into the sandboxed process and force llvmpipe
+        # directly -- assert the fix that actually reaches the process, not
+        # a GDK_DISABLE override Ghostty is proven to clobber.
+        script = (ROOT / "iso/scripts/luks-e2e.sh").read_text()
+        marker = "cat > ~/.config/autostart/"
+        autostart = script[script.index(marker):script.index("\nEOF", script.index(marker))]
+        exec_line = next(l for l in autostart.splitlines() if l.startswith("Exec="))
+        self.assertNotIn("GDK_DISABLE", exec_line)
+        self.assertIn("env LIBGL_ALWAYS_SOFTWARE=1 MESA_LOADER_DRIVER_OVERRIDE=llvmpipe ",
+                       exec_line)
+        self.assertTrue(exec_line.endswith("flatpak --system run ${TERMINAL_APP}"))
+        # The disproven `flatpak override --env=GDK_DISABLE=...` route (see
+        # comment above) was added and reverted during review; assert it
+        # never comes back in the installer script either.
+        installer = (ROOT / "iso/live/src/install-flatpaks.sh").read_text()
+        self.assertNotIn("GDK_DISABLE", installer)
+
     def test_iso_budget_guard_fails_closed_above_ceiling(self):
         # The budget guard (#128) is the whole point of the size drift this PR
         # closes. Extract the real block and run it with du stubbed so we can
