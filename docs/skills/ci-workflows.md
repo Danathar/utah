@@ -182,19 +182,52 @@ oneshot that runs after `display-manager.service`, so it catches a boot that
 stopped just short of a usable display. Test credentials are confined to the
 disposable ISO/disk; neither is uploaded or released.
 
+Only after the entire LUKS matrix succeeds, `production-iso` composes a fresh
+`DEBUG=0` x86_64 UEFI ISO from each same digest, writes its SHA-256 checksum,
+and retains both as a 30-day Actions artifact. It is deliberately an artifact,
+not a release: destination, flavor policy, naming, signing, and Secure Boot
+are product decisions tracked by #186. Production-ISO composition is a
+promotion prerequisite, so a failed production build cannot advance testing
+tags. Debug ISOs and guest disks are never uploaded because they contain test
+credentials.
+
+**"Production" names the `DEBUG=0` build, not shippable media.** `DEBUG=0`
+does exclude the test credentials and sshd path (`iso/live/src/configure-live.sh`),
+so the retained artifact carries no secrets — but `iso/scripts/build-iso.sh`
+hard-codes `enforcing=0 console=ttyS0,115200n8` on the boot entry for every
+`DEBUG` value (the documented Issue #22 exception: rootless `podman unshare`
+cannot write `security.selinux` xattrs into the squashfs root), so this ISO
+boots SELinux-permissive with a serial console.
+That was unremarkable while ISOs were disposable; retaining them for
+30 days under the name "production" makes it worth stating plainly. Running
+the live environment permissive is a product decision, and it belongs to #186
+along with signing and Secure Boot — it must be settled there before any of
+these ISOs reach users. Do not treat a green `production-iso` job as evidence
+that the media is release-ready.
+
+Each retained ISO is multi-GB (the size budget in `iso/scripts/build-iso.sh`
+is the ceiling, not the measured size), per flavor, per dispatch, at 30-day
+retention. That is real Actions storage; if the matrix widens, revisit the
+retention window before the flavor count.
+
 Every matrix job preserves build/test logs, serial logs, and screenshots,
 including on failure. Only passing jobs upload `docs/verification` with the
 source commit, original build run, E2E run, image digest and ISO checksum.
-The promotion job depends on the entire matrix; a superseded testing commit
-cannot move tags. Registry tag copies are sequential, not an atomic multi-tag
-transaction: a registry failure can interrupt promotion after a partial copy.
+The promotion job depends on the LUKS and production-ISO matrices; a
+superseded testing commit cannot move tags. Registry tag copies are sequential,
+not an atomic multi-tag transaction: a registry failure can interrupt promotion
+after a partial copy.
 
 A separate least-privilege job proposes the main desktop's screenshots in
-`automation/iso-verification`, a documentation PR. It updates only the README
-evidence block and `docs/verification/`, preserving the current README's other
-content. The repository must allow Actions to create pull requests; a denied
-write fails this job visibly, without deleting test artifacts. It does not
-auto-merge the evidence PR or imply a fresh pass for a different commit.
+`automation/iso-verification`, a documentation PR. It also depends on
+`production-iso`, so a failed production-ISO composition blocks this
+screenshot-refresh PR too, not just testing-tag promotion — a LUKS-only
+concern in `docs/verification` still has to wait on the whole matrix
+composing cleanly. It updates only the README evidence block and
+`docs/verification/`, preserving the current README's other content. The
+repository must allow Actions to create pull requests; a denied write fails
+this job visibly, without deleting test artifacts. It does not auto-merge
+the evidence PR or imply a fresh pass for a different commit.
 
 For a deliberate rerun, dispatch Post-Testing E2E with `build_run_id` from a
 successful testing build containing the current harness. Do not pass a PR
