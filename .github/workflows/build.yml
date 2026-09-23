@@ -168,6 +168,10 @@ jobs:
       architecture: '["x86_64"]'
       # Testing is advanced only after post-testing-e2e validates the build.
       publish_stream_tag: "false"
+      # Opt into rechunking + SBOM: testing is Utah's only stream and the
+      # reusable workflow skips both on it by default. Overridden via
+      # projectbluefin/actions#557, which the pinned reusable-build digest includes.
+      rechunk: "true"
 
   dispatch-iso:
     needs: [build_main, build_kernel]
@@ -213,3 +217,5 @@ jobs:
       stream_name: testing
       architecture: '["x86_64"]'
       publish_stream_tag: "false"
+      # Same rechunk opt-in as build_main above.
+      rechunk: "true"
